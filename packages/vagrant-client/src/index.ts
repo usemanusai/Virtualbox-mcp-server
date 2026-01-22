@@ -139,10 +139,107 @@ end
         }
     }
 
+    async startVM(name: string): Promise<void> {
+        const vmDir = path.join(this.vmsDir, name);
+        if (!fs.existsSync(vmDir)) {
+            throw new Error(`VM ${name} not found`);
+        }
+        await execa('vagrant', ['up'], { cwd: vmDir });
+    }
+
     async destroyVM(name: string): Promise<void> {
         const vmDir = path.join(this.vmsDir, name);
         if (fs.existsSync(vmDir)) {
             await execa('vagrant', ['destroy', '-f'], { cwd: vmDir });
         }
     }
+
+    async rsyncToVM(name: string): Promise<void> {
+        const vmDir = path.join(this.vmsDir, name);
+        if (!fs.existsSync(vmDir)) {
+            throw new Error(`VM ${name} not found`);
+        }
+        await execa('vagrant', ['rsync'], { cwd: vmDir });
+    }
+
+    async rsyncFromVM(name: string): Promise<void> {
+        const vmDir = path.join(this.vmsDir, name);
+        if (!fs.existsSync(vmDir)) {
+            throw new Error(`VM ${name} not found`);
+        }
+        // rsync-back requires the vagrant-rsync-back plugin
+        // Fallback: just run rsync command in reverse direction
+        await execa('vagrant', ['rsync-back'], { cwd: vmDir });
+    }
+
+    /**
+     * Creates a VM with full configuration options.
+     * This mirrors the Go server's create_dev_vm functionality.
+     */
+    async createVMAdvanced(
+        name: string,
+        projectPath: string,
+        config: {
+            box?: string;
+            cpu?: number;
+            memory?: number;
+            ports?: { guest: number; host: number }[];
+            syncType?: string;
+            excludePatterns?: string[];
+        }
+    ): Promise<void> {
+        const vmDir = path.join(this.vmsDir, name);
+        if (!fs.existsSync(vmDir)) {
+            fs.mkdirSync(vmDir, { recursive: true });
+        }
+
+        const box = config.box || 'ubuntu/focal64';
+        const cpu = config.cpu || 2;
+        const memory = config.memory || 2048;
+        const ports = config.ports || [
+            { guest: 3000, host: 3000 },
+            { guest: 8000, host: 8000 },
+            { guest: 5432, host: 5432 },
+            { guest: 3306, host: 3306 },
+            { guest: 6379, host: 6379 },
+        ];
+        const syncType = config.syncType || 'rsync';
+        const excludePatterns = config.excludePatterns || [
+            'node_modules', '.git', '*.log', 'dist', 'build',
+            '__pycache__', '*.pyc', 'venv', '.venv', '*.o', '*.out'
+        ];
+
+        // Generate port forwarding rules
+        const portRules = ports
+            .map(p => `    config.vm.network "forwarded_port", guest: ${p.guest}, host: ${p.host}`)
+            .join('\n');
+
+        // Generate exclude patterns for rsync
+        const excludeArgs = excludePatterns.map(p => `"${p}"`).join(', ');
+
+        const vagrantfileContent = `
+Vagrant.configure("2") do |config|
+  config.vm.box = "${box}"
+
+  config.vm.provider "virtualbox" do |vb|
+    vb.name = "${name}"
+    vb.memory = "${memory}"
+    vb.cpus = ${cpu}
+  end
+
+${portRules}
+
+  config.vm.synced_folder "${projectPath.replace(/\\/g, '/')}", "/vagrant",
+    type: "${syncType}",
+    rsync__exclude: [${excludeArgs}]
+end
+`;
+
+        const vagrantfilePath = path.join(vmDir, 'Vagrantfile');
+        fs.writeFileSync(vagrantfilePath, vagrantfileContent);
+
+        logger.info(`Creating VM ${name} with box ${box}, CPU: ${cpu}, Memory: ${memory}MB`);
+        await execa('vagrant', ['up'], { cwd: vmDir });
+    }
 }
+
