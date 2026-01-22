@@ -49,12 +49,41 @@ Creates and starts a new Vagrant VM.
     }
     ```
 
-### 2. `get_vm_status`
-Retrieves the current state of a specific VM.
+### 3. `list_vms`
+List all managed VMs and their statuses.
+
+-   **Arguments**: None.
+-   **Returns**: JSON list of VMs.
+
+### 4. `exec_command`
+Execute a shell command inside a VM via SSH.
 
 -   **Arguments**:
-    -   `name` (string, required): logical name of the VM.
--   **Returns**: JSON string containing `{ name: string, state: "running" | "poweroff" | "not_created" | ... }`.
+    -   `vm_name` (string, required): Name of the VM.
+    -   `command` (string, required): Shell command to run.
+-   **Returns**: stdout, stderr, and exit code.
+
+### 5. `upload_file`
+Upload a file from host to VM.
+
+-   **Arguments**:
+    -   `vm_name` (string, required): Name of the VM.
+    -   `source` (string, required): Host path.
+    -   `destination` (string, required): VM path.
+
+### 6. `search_files`
+Search for text in files inside the VM (using `grep`).
+
+-   **Arguments**:
+    -   `vm_name` (string, required).
+    -   `query` (string, required): Text to search for.
+    -   `path` (string, optional): Directory to search (default: `/vagrant`).
+
+### 7. `destroy_vm`
+Forcefully destroy a VM.
+
+-   **Arguments**:
+    -   `name` (string, required): Name of the VM.
 
 ## ⚙️ Configuration
 

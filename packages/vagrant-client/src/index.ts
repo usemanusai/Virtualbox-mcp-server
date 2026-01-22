@@ -58,6 +58,55 @@ export class VagrantClient {
         }
     }
 
+    async listVMs(): Promise<{ name: string; state: VMStatus }[]> {
+        if (!fs.existsSync(this.vmsDir)) return [];
+
+        const vms: { name: string; state: VMStatus }[] = [];
+        const entries = fs.readdirSync(this.vmsDir, { withFileTypes: true });
+
+        for (const entry of entries) {
+            if (entry.isDirectory()) {
+                const status = await this.getVMStatus(entry.name);
+                vms.push({ name: entry.name, state: status });
+            }
+        }
+        return vms;
+    }
+
+    async executeCommand(name: string, command: string): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+        const vmDir = path.join(this.vmsDir, name);
+        if (!fs.existsSync(vmDir)) {
+            throw new Error(`VM ${name} not found`);
+        }
+
+        try {
+            // Use vagrant ssh -c to execute command
+            const result = await execa('vagrant', ['ssh', '-c', command], { cwd: vmDir });
+            return {
+                stdout: result.stdout,
+                stderr: result.stderr,
+                exitCode: result.exitCode
+            };
+        } catch (error: any) {
+            // execa throws on non-zero exit code
+            return {
+                stdout: error.stdout || '',
+                stderr: error.stderr || '',
+                exitCode: error.exitCode || 1
+            };
+        }
+    }
+
+    async uploadFile(name: string, source: string, destination: string): Promise<void> {
+        const vmDir = path.join(this.vmsDir, name);
+        if (!fs.existsSync(vmDir)) {
+            throw new Error(`VM ${name} not found`);
+        }
+
+        // vagrant upload source [destination] [name|id]
+        await execa('vagrant', ['upload', source, destination], { cwd: vmDir });
+    }
+
     async createVM(name: string, box: string = 'ubuntu/focal64'): Promise<void> {
         const vmDir = path.join(this.vmsDir, name);
         if (!fs.existsSync(vmDir)) {

@@ -12,6 +12,18 @@
         "lint": "turbo run lint",
         "format": "prettier --write \"**/*.{ts,tsx,md}\""
     },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/usemanusai/Virtualbox-mcp-server.git"
+    },
+    "keywords": [
+        "mcp",
+        "virtualbox",
+        "vagrant",
+        "server"
+    ],
+    "author": "usemanusai",
+    "license": "MIT",
     "devDependencies": {
         "turbo": "^1.10.0",
         "prettier": "^3.0.0",
