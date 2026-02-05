@@ -50,9 +50,7 @@ Virtualbox-mcp-server/          # Turborepo Monorepo
 └── package.json
 ```
 
-![VirtualBox MCP Architecture Overview](assets/architecture-overview.jpg)
 
-![VirtualBox MCP Architecture Detail](assets/architecture-detail.jpg)
 
 ---
 

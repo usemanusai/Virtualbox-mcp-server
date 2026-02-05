@@ -1,6 +1,6 @@
 {
     "name": "@use.manus.ai/virtualbox-mcp-server",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "type": "module",
     "description": "A powerful Model Context Protocol (MCP) server for managing VirtualBox VMs via Vagrant.",
     "main": "./dist/index.js",

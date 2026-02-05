@@ -29,7 +29,7 @@ export class McpServer {
         this.server = new Server(
             {
                 name: "virtualbox-mcp-server",
-                version: "1.0.1",
+                version: "1.0.2",
             },
             {
                 capabilities: {
