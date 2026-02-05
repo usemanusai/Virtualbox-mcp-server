@@ -1,9 +1,10 @@
-import { VagrantClient } from '@virtualbox-mcp/vagrant-client';
+import { VagrantClient, VMCredentials } from '@virtualbox-mcp/vagrant-client';
 import { logger } from '@virtualbox-mcp/shared-utils';
 import * as chokidar from 'chokidar';
 import { execa } from 'execa';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 
 export type SyncDirection = 'bidirectional' | 'to_vm' | 'from_vm';
 export type SyncStatus = 'idle' | 'syncing' | 'error';
@@ -15,6 +16,7 @@ interface SyncConfig {
     guestPath: string;
     direction: SyncDirection;
     excludePatterns?: string[];
+    credentials?: VMCredentials;
 }
 
 interface SyncState {
@@ -27,6 +29,7 @@ export class SyncManager {
     private watchers: Map<string, chokidar.FSWatcher> = new Map();
     private configs: Map<string, SyncConfig> = new Map();
     private states: Map<string, SyncState> = new Map();
+    private fileHashes: Map<string, string> = new Map(); // Cache for file hashes
 
     constructor(private vagrant: VagrantClient) { }
 
@@ -69,9 +72,28 @@ export class SyncManager {
         this.watchers.set(config.vmName, watcher);
     }
 
+    private async computeHash(filePath: string): Promise<string | null> {
+        try {
+            const content = await fs.promises.readFile(filePath);
+            return crypto.createHash('md5').update(content).digest('hex');
+        } catch (error) {
+            return null; // File might be deleted or inaccessible
+        }
+    }
+
     async syncToVM(vmName: string, changedFile: string): Promise<void> {
         const config = this.configs.get(vmName);
         if (!config) return;
+
+        // Skip if file is deleted (handling deletions is complex in this simple sync)
+        if (!fs.existsSync(changedFile)) return;
+
+        // Compute hash to avoid redundant transfers
+        const newHash = await this.computeHash(changedFile);
+        if (newHash && this.fileHashes.get(changedFile) === newHash) {
+            logger.debug(`Skipping sync for ${changedFile} (content unchanged)`);
+            return;
+        }
 
         const state = this.states.get(vmName)!;
         state.status = 'syncing';
@@ -82,9 +104,9 @@ export class SyncManager {
 
             logger.info(`Syncing ${relPath} to VM ${vmName}`);
 
-            // Use vagrant upload for simplicity and reliability
-            // In a production rsync scenario, we would use rsync directly
-            await this.vagrant.uploadFile(vmName, changedFile, destPath);
+            await this.vagrant.uploadFile(vmName, changedFile, destPath, config.credentials);
+
+            if (newHash) this.fileHashes.set(changedFile, newHash);
 
             state.lastSyncTime = new Date();
             state.status = 'idle';
@@ -106,7 +128,7 @@ export class SyncManager {
             await this.syncToVM(vmName, path.join(config.hostPath, filePath));
         } else {
             // use_vm: Download file from VM via cat
-            const result = await this.vagrant.executeCommand(vmName, `cat "${path.join(config.guestPath, filePath).replace(/\\/g, '/')}"`);
+            const result = await this.vagrant.executeCommand(vmName, `cat "${path.join(config.guestPath, filePath).replace(/\\/g, '/')}"`, config.credentials);
             if (result.exitCode === 0) {
                 const hostFilePath = path.join(config.hostPath, filePath);
                 fs.mkdirSync(path.dirname(hostFilePath), { recursive: true });
@@ -130,16 +152,26 @@ export class SyncManager {
     async syncToVMFull(vmName: string): Promise<{ syncedFiles: string[]; syncTimeMs: number }> {
         const startTime = Date.now();
         const state = this.states.get(vmName);
+        const config = this.configs.get(vmName);
         if (state) state.status = 'syncing';
 
         try {
-            await this.vagrant.rsyncToVM(vmName);
+            try {
+                await this.vagrant.rsyncToVM(vmName);
+            } catch (error) {
+                if (config) {
+                    logger.info(`Vagrant rsync failed for ${vmName}, falling back to native recursive upload...`);
+                    await this.vagrant.uploadFile(vmName, config.hostPath, config.guestPath, config.credentials);
+                } else {
+                    throw error;
+                }
+            }
             const syncTimeMs = Date.now() - startTime;
             if (state) {
                 state.status = 'idle';
                 state.lastSyncTime = new Date();
             }
-            return { syncedFiles: ['(rsync completed)'], syncTimeMs };
+            return { syncedFiles: ['(full sync completed)'], syncTimeMs };
         } catch (error) {
             if (state) state.status = 'error';
             throw error;
@@ -152,16 +184,26 @@ export class SyncManager {
     async syncFromVMFull(vmName: string): Promise<{ syncedFiles: string[]; syncTimeMs: number }> {
         const startTime = Date.now();
         const state = this.states.get(vmName);
+        const config = this.configs.get(vmName);
         if (state) state.status = 'syncing';
 
         try {
-            await this.vagrant.rsyncFromVM(vmName);
+            try {
+                await this.vagrant.rsyncFromVM(vmName);
+            } catch (error) {
+                if (config) {
+                    logger.info(`Vagrant rsync-back failed for ${vmName}, falling back to manual download...`);
+                    throw new Error(`Full sync from native VM is not yet supported. Use 'resolve_conflict' for specific files.`);
+                } else {
+                    throw error;
+                }
+            }
             const syncTimeMs = Date.now() - startTime;
             if (state) {
                 state.status = 'idle';
                 state.lastSyncTime = new Date();
             }
-            return { syncedFiles: ['(rsync-back completed)'], syncTimeMs };
+            return { syncedFiles: ['(full sync from VM completed)'], syncTimeMs };
         } catch (error) {
             if (state) state.status = 'error';
             throw error;
@@ -169,3 +211,11 @@ export class SyncManager {
     }
 }
 
+// Export BackgroundTaskManager for observability
+export { BackgroundTaskManager, TaskInfo, TaskOutput, TaskStatus, TaskRegistrationResult } from './background-task-manager.js';
+
+// Export OperationTracker for progress awareness
+export { OperationTracker, ProgressInfo, OperationType, OperationStatus, StartOperationOptions, WaitOptions } from './operation-tracker.js';
+
+// Export GuardrailsManager for safety
+export { GuardrailsManager, Violation } from './guardrails-manager.js';
