@@ -845,6 +845,7 @@ end
 
     /**
      * Takes a screenshot of the VM
+     * @returns Path to the screenshot file (caller is responsible for cleanup)
      */
     async takeScreenshot(name: string): Promise<string> {
         const vbox = await this.getVBoxManage();
@@ -859,11 +860,528 @@ end
         // VBoxManage controlvm <vm> screenshotpng <path>
         await execa(vbox, ['controlvm', name, 'screenshotpng', hostPath]);
 
-        // Read as base64
-        const buffer = fs.readFileSync(hostPath);
-        // Clean up
-        fs.unlinkSync(hostPath);
+        // Return the file path - caller handles reading and cleanup
+        return hostPath;
+    }
 
-        return buffer.toString('base64');
+
+    // ========================================
+    // PROCESS MANAGEMENT TOOLS
+    // ========================================
+
+    /**
+     * Lists running processes in the VM
+     * @param name - VM name
+     * @param filter - Optional process name filter
+     * @param options - VM credentials
+     * @returns Structured process list
+     */
+    async listProcesses(name: string, filter?: string, options: VMCredentials = {}): Promise<{
+        processes: Array<{
+            user: string;
+            pid: number;
+            cpu: number;
+            mem: number;
+            vsz: number;
+            rss: number;
+            tty: string;
+            stat: string;
+            start: string;
+            time: string;
+            command: string;
+        }>;
+        total: number;
+        filtered: boolean;
+    }> {
+        // Build command with optional filter
+        let cmd = 'ps aux --no-headers';
+        if (filter) {
+            const sanitizedFilter = filter.replace(/'/g, "'\\''");
+            cmd += ` | grep -i '${sanitizedFilter}' | grep -v grep`;
+        }
+
+        const result = await this.executeCommand(name, cmd, options);
+        const lines = result.stdout.split('\n').filter(l => l.trim().length > 0);
+
+        const processes: Array<{
+            user: string;
+            pid: number;
+            cpu: number;
+            mem: number;
+            vsz: number;
+            rss: number;
+            tty: string;
+            stat: string;
+            start: string;
+            time: string;
+            command: string;
+        }> = [];
+
+        // Parse ps aux output format:
+        // USER PID %CPU %MEM VSZ RSS TTY STAT START TIME COMMAND
+        const psAuxRegex = /^(\S+)\s+(\d+)\s+(\d+\.?\d*)\s+(\d+\.?\d*)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(.*)$/;
+
+        for (const line of lines) {
+            const match = line.match(psAuxRegex);
+            if (match) {
+                processes.push({
+                    user: match[1],
+                    pid: parseInt(match[2], 10),
+                    cpu: parseFloat(match[3]),
+                    mem: parseFloat(match[4]),
+                    vsz: parseInt(match[5], 10),
+                    rss: parseInt(match[6], 10),
+                    tty: match[7],
+                    stat: match[8],
+                    start: match[9],
+                    time: match[10],
+                    command: match[11]
+                });
+            }
+        }
+
+        return {
+            processes,
+            total: processes.length,
+            filtered: !!filter
+        };
+    }
+
+    /**
+     * Kills a process in the VM
+     * @param name - VM name
+     * @param pid - Process ID to kill
+     * @param signal - Signal to send (SIGTERM, SIGKILL, etc.)
+     * @param options - VM credentials
+     * @returns Kill result
+     */
+    async killProcess(name: string, pid: number, signal: string = 'SIGTERM', options: VMCredentials = {}): Promise<{
+        success: boolean;
+        pid: number;
+        signal: string;
+        message: string;
+    }> {
+        // Validate signal - only allow known signals
+        const validSignals = [
+            'SIGTERM', 'SIGKILL', 'SIGINT', 'SIGHUP', 'SIGSTOP', 'SIGCONT',
+            'SIGUSR1', 'SIGUSR2', 'SIGQUIT', '9', '15', '2', '1'
+        ];
+        const normalizedSignal = signal.toUpperCase();
+        if (!validSignals.includes(normalizedSignal) && !normalizedSignal.match(/^\d+$/)) {
+            return {
+                success: false,
+                pid,
+                signal: normalizedSignal,
+                message: `Invalid signal: ${signal}. Valid signals: SIGTERM, SIGKILL, SIGINT, SIGHUP, etc.`
+            };
+        }
+
+        // Verify process exists first
+        const checkCmd = `ps -p ${pid} -o pid= 2>/dev/null`;
+        const checkResult = await this.executeCommand(name, checkCmd, options);
+        if (checkResult.exitCode !== 0 || !checkResult.stdout.trim()) {
+            return {
+                success: false,
+                pid,
+                signal: normalizedSignal,
+                message: `Process ${pid} not found or already terminated`
+            };
+        }
+
+        // Send the kill signal
+        const killCmd = `kill -${normalizedSignal} ${pid} 2>&1`;
+        const result = await this.executeCommand(name, killCmd, options);
+
+        if (result.exitCode === 0) {
+            return {
+                success: true,
+                pid,
+                signal: normalizedSignal,
+                message: `Signal ${normalizedSignal} sent to process ${pid}`
+            };
+        } else {
+            return {
+                success: false,
+                pid,
+                signal: normalizedSignal,
+                message: result.stderr || result.stdout || `Failed to send signal to process ${pid}`
+            };
+        }
+    }
+
+    /**
+     * Checks if a port is listening inside the VM
+     * @param name - VM name
+     * @param port - Port number to check
+     * @param options - VM credentials
+     * @returns Port status
+     */
+    async checkPortInVM(name: string, port: number, options: VMCredentials = {}): Promise<{
+        listening: boolean;
+        port: number;
+        protocol: string;
+        process?: string;
+        pid?: number;
+        message: string;
+    }> {
+        // Use ss command for modern Linux, fallback to netstat
+        const checkCmd = `ss -tlnp 2>/dev/null | grep ':${port}\\s' || netstat -tlnp 2>/dev/null | grep ':${port}\\s' || echo "PORT_NOT_FOUND"`;
+        const result = await this.executeCommand(name, checkCmd, options);
+        const output = result.stdout.trim();
+
+        if (output === 'PORT_NOT_FOUND' || output.length === 0) {
+            return {
+                listening: false,
+                port,
+                protocol: 'tcp',
+                message: `Port ${port} is not listening`
+            };
+        }
+
+        // Parse ss output: LISTEN 0 128 *:3000 *:* users:(("node",pid=1234,fd=3))
+        // Or netstat: tcp 0 0 0.0.0.0:3000 0.0.0.0:* LISTEN 1234/node
+        const ssMatch = output.match(/users:\(\("([^"]+)",pid=(\d+)/);
+        const netstatMatch = output.match(/(\d+)\/(\S+)\s*$/);
+
+        let process: string | undefined;
+        let pid: number | undefined;
+
+        if (ssMatch) {
+            process = ssMatch[1];
+            pid = parseInt(ssMatch[2], 10);
+        } else if (netstatMatch) {
+            pid = parseInt(netstatMatch[1], 10);
+            process = netstatMatch[2];
+        }
+
+        return {
+            listening: true,
+            port,
+            protocol: 'tcp',
+            process,
+            pid,
+            message: process ? `Port ${port} is listening (process: ${process}, pid: ${pid})` : `Port ${port} is listening`
+        };
+    }
+
+    /**
+     * Checks if a port is accessible on the host
+     * @param port - Port number to check on host
+     * @returns Port accessibility status
+     */
+    async checkHostPort(port: number): Promise<{
+        accessible: boolean;
+        port: number;
+        message: string;
+    }> {
+        // Use Node.js net module to check if port is in use/accessible
+        return new Promise((resolve) => {
+            const net = require('net');
+            const socket = new net.Socket();
+            let resolved = false;
+
+            const cleanup = () => {
+                socket.destroy();
+            };
+
+            socket.setTimeout(3000);
+
+            socket.on('connect', () => {
+                if (!resolved) {
+                    resolved = true;
+                    cleanup();
+                    resolve({
+                        accessible: true,
+                        port,
+                        message: `Port ${port} is accessible on localhost`
+                    });
+                }
+            });
+
+            socket.on('timeout', () => {
+                if (!resolved) {
+                    resolved = true;
+                    cleanup();
+                    resolve({
+                        accessible: false,
+                        port,
+                        message: `Port ${port} connection timed out`
+                    });
+                }
+            });
+
+            socket.on('error', (err: any) => {
+                if (!resolved) {
+                    resolved = true;
+                    cleanup();
+                    if (err.code === 'ECONNREFUSED') {
+                        resolve({
+                            accessible: false,
+                            port,
+                            message: `Port ${port} connection refused (port forwarding may be failing)`
+                        });
+                    } else {
+                        resolve({
+                            accessible: false,
+                            port,
+                            message: `Port ${port} check error: ${err.message}`
+                        });
+                    }
+                }
+            });
+
+            socket.connect(port, '127.0.0.1');
+        });
+    }
+
+    /**
+     * Gets resource usage (CPU, RAM, Disk) for a VM
+     * @param name - VM name
+     * @param options - VM credentials
+     * @returns Resource usage statistics
+     */
+    async getResourceUsage(name: string, options: VMCredentials = {}): Promise<{
+        cpu: {
+            usage_percent: number;
+            load_1min: number;
+            load_5min: number;
+            load_15min: number;
+            cores: number;
+        };
+        memory: {
+            total_mb: number;
+            used_mb: number;
+            free_mb: number;
+            usage_percent: number;
+        };
+        disk: {
+            total_gb: number;
+            used_gb: number;
+            free_gb: number;
+            usage_percent: number;
+            mount_point: string;
+        };
+    }> {
+        // Gather all resource info in parallel
+        const [cpuResult, memResult, diskResult, loadResult] = await Promise.all([
+            this.executeCommand(name, 'nproc', options),
+            this.executeCommand(name, "free -m | grep Mem | awk '{print $2,$3,$4}'", options),
+            this.executeCommand(name, "df -BG / | tail -1 | awk '{print $2,$3,$4,$5}'", options),
+            this.executeCommand(name, 'cat /proc/loadavg', options)
+        ]);
+
+        // Parse CPU cores
+        const cores = parseInt(cpuResult.stdout.trim(), 10) || 1;
+
+        // Parse load average: "0.45 0.32 0.21 1/45 1234"
+        const loadParts = loadResult.stdout.trim().split(/\s+/);
+        const load1 = parseFloat(loadParts[0]) || 0;
+        const load5 = parseFloat(loadParts[1]) || 0;
+        const load15 = parseFloat(loadParts[2]) || 0;
+
+        // Calculate CPU usage percentage based on 1-min load and cores
+        const cpuUsage = Math.min(100, (load1 / cores) * 100);
+
+        // Parse memory: "2048 1024 512" (total used free)
+        const memParts = memResult.stdout.trim().split(/\s+/);
+        const totalMem = parseInt(memParts[0], 10) || 1;
+        const usedMem = parseInt(memParts[1], 10) || 0;
+        const freeMem = parseInt(memParts[2], 10) || 0;
+        const memUsage = (usedMem / totalMem) * 100;
+
+        // Parse disk: "20G 10G 8G 55%" (total used free percent)
+        const diskParts = diskResult.stdout.trim().split(/\s+/);
+        const parseSize = (s: string) => parseFloat(s.replace(/[GgMmKk]$/, '')) || 0;
+        const totalDisk = parseSize(diskParts[0]);
+        const usedDisk = parseSize(diskParts[1]);
+        const freeDisk = parseSize(diskParts[2]);
+        const diskPercent = parseFloat(diskParts[3]?.replace('%', '') || '0');
+
+        return {
+            cpu: {
+                usage_percent: Math.round(cpuUsage * 100) / 100,
+                load_1min: load1,
+                load_5min: load5,
+                load_15min: load15,
+                cores
+            },
+            memory: {
+                total_mb: totalMem,
+                used_mb: usedMem,
+                free_mb: freeMem,
+                usage_percent: Math.round(memUsage * 100) / 100
+            },
+            disk: {
+                total_gb: totalDisk,
+                used_gb: usedDisk,
+                free_gb: freeDisk,
+                usage_percent: diskPercent,
+                mount_point: '/'
+            }
+        };
+    }
+
+    /**
+     * Modifies VM resources (CPU, RAM, GUI mode)
+     * @param name - VM name
+     * @param options - Resource options
+     * @returns Modification result
+     */
+    async modifyVMResources(name: string, options: { cpu?: number; memory?: number; gui_mode?: boolean }): Promise<{
+        success: boolean;
+        changes: string[];
+        requiresReboot: boolean;
+        message: string;
+    }> {
+        const vbox = await this.getVBoxManage();
+        const changes: string[] = [];
+        let requiresReboot = false;
+
+        // Check current VM state
+        const status = await this.getVMStatus(name);
+        const wasRunning = status === 'running';
+
+        // If VM is running, we need to halt it first for most changes
+        if (wasRunning && (options.cpu !== undefined || options.memory !== undefined)) {
+            logger.info(`Halting ${name} to modify resources...`);
+            await this.haltVM(name);
+            requiresReboot = true;
+        }
+
+        try {
+            // Modify CPU count
+            if (options.cpu !== undefined && options.cpu > 0) {
+                await execa(vbox, ['modifyvm', name, '--cpus', String(options.cpu)]);
+                changes.push(`CPU cores set to ${options.cpu}`);
+            }
+
+            // Modify memory
+            if (options.memory !== undefined && options.memory > 0) {
+                await execa(vbox, ['modifyvm', name, '--memory', String(options.memory)]);
+                changes.push(`Memory set to ${options.memory}MB`);
+            }
+
+            // Modify GUI mode (can be done while running for some cases)
+            if (options.gui_mode !== undefined) {
+                // Update Vagrantfile if this is a managed VM
+                const vmDir = path.join(this.vmsDir, name);
+                if (fs.existsSync(vmDir)) {
+                    const vagrantfilePath = path.join(vmDir, 'Vagrantfile');
+                    if (fs.existsSync(vagrantfilePath)) {
+                        let content = fs.readFileSync(vagrantfilePath, 'utf8');
+                        const guiValue = options.gui_mode ? 'true' : 'false';
+                        if (content.includes('vb.gui =')) {
+                            content = content.replace(/vb\.gui\s*=\s*(true|false)/, `vb.gui = ${guiValue}`);
+                        } else {
+                            content = content.replace(/config\.vm\.provider\s+"virtualbox"\s+do\s+\|vb\|/, (match) => {
+                                return `${match}\n    vb.gui = ${guiValue}`;
+                            });
+                        }
+                        fs.writeFileSync(vagrantfilePath, content);
+                    }
+                }
+                changes.push(`GUI mode set to ${options.gui_mode ? 'enabled' : 'disabled'}`);
+                requiresReboot = true;
+            }
+
+            // Restart VM if it was running
+            if (wasRunning && requiresReboot) {
+                logger.info(`Restarting ${name}...`);
+                await this.startVM(name);
+            }
+
+            return {
+                success: true,
+                changes,
+                requiresReboot,
+                message: changes.length > 0
+                    ? `Modified ${name}: ${changes.join(', ')}${requiresReboot ? ' (VM was restarted)' : ''}`
+                    : 'No changes applied'
+            };
+        } catch (error: any) {
+            // Try to restart VM if we halted it
+            if (wasRunning && requiresReboot) {
+                try {
+                    await this.startVM(name);
+                } catch (e) {
+                    logger.error(`Failed to restart ${name} after modification error`, e);
+                }
+            }
+
+            return {
+                success: false,
+                changes,
+                requiresReboot: false,
+                message: error.stderr || error.message || 'Failed to modify VM resources'
+            };
+        }
+    }
+
+    /**
+     * Packages a VM as a .box file for distribution
+     * @param name - VM name
+     * @param outputFile - Optional output file path
+     * @returns Package result
+     */
+    async packageVM(name: string, outputFile?: string): Promise<{
+        success: boolean;
+        boxFile: string;
+        sizeBytes: number;
+        message: string;
+    }> {
+        const vmDir = path.join(this.vmsDir, name);
+
+        if (!fs.existsSync(vmDir)) {
+            throw new Error(`VM ${name} not found. Only Vagrant-managed VMs can be packaged.`);
+        }
+
+        // Determine output path
+        const outputPath = outputFile || path.join(vmDir, `${name}.box`);
+
+        // Ensure parent directory exists
+        const outputDir = path.dirname(outputPath);
+        if (!fs.existsSync(outputDir)) {
+            fs.mkdirSync(outputDir, { recursive: true });
+        }
+
+        // Remove existing box file if present
+        if (fs.existsSync(outputPath)) {
+            fs.unlinkSync(outputPath);
+        }
+
+        try {
+            // Halt VM before packaging
+            const status = await this.getVMStatus(name);
+            if (status === 'running') {
+                logger.info(`Halting ${name} before packaging...`);
+                await this.haltVM(name);
+            }
+
+            // Run vagrant package
+            logger.info(`Packaging ${name} to ${outputPath}...`);
+            await execa('vagrant', ['package', '--output', outputPath], {
+                cwd: vmDir,
+                timeout: 600000 // 10 minute timeout for large VMs
+            });
+
+            // Get file size
+            const stats = fs.statSync(outputPath);
+            const sizeBytes = stats.size;
+            const sizeMB = Math.round(sizeBytes / (1024 * 1024) * 100) / 100;
+
+            return {
+                success: true,
+                boxFile: outputPath,
+                sizeBytes,
+                message: `VM ${name} packaged successfully to ${outputPath} (${sizeMB}MB)`
+            };
+        } catch (error: any) {
+            return {
+                success: false,
+                boxFile: outputPath,
+                sizeBytes: 0,
+                message: error.stderr || error.message || 'Failed to package VM'
+            };
+        }
     }
 }
