@@ -1,0 +1,40 @@
+
+> @use.manus.ai/virtualbox-mcp-server@1.0.1 build
+> esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --packages=bundle --banner:js="import { createRequire } from 'module'; const require = createRequire(import.meta.url);"
+
+X [ERROR] Invalid value "bundle" in "--packages=bundle"
+
+  The only valid value is "external".
+
+1 error
+node:child_process:964
+    throw err;
+    ^
+
+Error: Command failed: C:\Users\Lenovo ThinkPad T480\.gemini\antigravity\scratch\Virtualbox-mcp-server\node_modules\@esbuild\win32-x64\esbuild.exe src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --packages=bundle --banner:js=import { createRequire } from 'module'; const require = createRequire(import.meta.url);
+    at genericNodeError (node:internal/errors:985:15)
+    at wrappedFn (node:internal/errors:539:14)
+    at checkExecSyncError (node:child_process:925:11)
+    at Object.execFileSync (node:child_process:961:15)
+    at Object.<anonymous> (C:\Users\Lenovo ThinkPad T480\.gemini\antigravity\scratch\Virtualbox-mcp-server\node_modules\esbuild\bin\esbuild:221:28)
+    at Module._compile (node:internal/modules/cjs/loader:1761:14)
+    at Object..js (node:internal/modules/cjs/loader:1893:10)
+    at Module.load (node:internal/modules/cjs/loader:1481:32)
+    at Module._load (node:internal/modules/cjs/loader:1300:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14) {
+  status: 1,
+  signal: null,
+  output: [ null, null, null ],
+  pid: 51480,
+  stdout: null,
+  stderr: null
+}
+
+Node.js v24.12.0
+npm error Lifecycle script `build` failed with error:
+npm error code 1
+npm error path C:\Users\Lenovo ThinkPad T480\.gemini\antigravity\scratch\Virtualbox-mcp-server\apps\mcp-server
+npm error workspace @use.manus.ai/virtualbox-mcp-server@1.0.1
+npm error location C:\Users\Lenovo ThinkPad T480\.gemini\antigravity\scratch\Virtualbox-mcp-server\apps\mcp-server
+npm error command failed
+npm error command C:\WINDOWS\system32\cmd.exe /d /s /c esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --packages=bundle --banner:js="import { createRequire } from 'module'; const require = createRequire(import.meta.url);"

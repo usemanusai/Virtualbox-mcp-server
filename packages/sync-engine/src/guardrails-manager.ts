@@ -35,11 +35,11 @@ export class GuardrailsManager {
         // Actually, we don't always have workspace path in args. 
         // But for things that use paths:
         if (args.path && typeof args.path === 'string') {
-            const isValid = this.systemMonitor.validateWorkspace(args.path);
-            if (!isValid) {
+            const check = this.systemMonitor.validateWorkspace(args.path);
+            if (!check.valid) {
                 violations.push({
                     type: 'SYSTEM_PROTECTION',
-                    message: `Operation blocked: Path validation failed (${args.path})`,
+                    message: `Operation blocked: ${check.reason} (${args.path})`,
                     severity: 'CRITICAL'
                 });
                 return violations; // Stop immediately
@@ -48,21 +48,21 @@ export class GuardrailsManager {
 
         // 2. Resource Checks for Heavy Operations
         if (['create_vm', 'snapshot_save', 'start_download'].includes(toolName)) {
-            const healthReport = await this.systemMonitor.checkHealth(process.cwd());
+            const diskCheck = await this.systemMonitor.checkDiskSpace(process.cwd()); // Check execution drive
 
-            if (healthReport.disk.free / 1024 < this.MIN_DISK_SPACE_GB_HARD) {
+            if (diskCheck.freeGB < this.MIN_DISK_SPACE_GB_HARD) {
                 violations.push({
                     type: 'NO_SPACE',
-                    message: `CRITICAL: Insufficient disk space (${Math.round(healthReport.disk.free / 1024)}GB). Minimum ${this.MIN_DISK_SPACE_GB_HARD}GB required.`,
+                    message: `CRITICAL: Insufficient disk space (${diskCheck.freeGB}GB). Minimum ${this.MIN_DISK_SPACE_GB_HARD}GB required.`,
                     severity: 'CRITICAL',
-                    details: healthReport.disk
+                    details: diskCheck
                 });
-            } else if (healthReport.disk.free / 1024 < this.MIN_DISK_SPACE_GB_SOFT) {
+            } else if (diskCheck.freeGB < this.MIN_DISK_SPACE_GB_SOFT) {
                 violations.push({
                     type: 'NO_SPACE',
-                    message: `WARNING: Low disk space (${Math.round(healthReport.disk.free / 1024)}GB). Recommended ${this.MIN_DISK_SPACE_GB_SOFT}GB.`,
+                    message: `WARNING: Low disk space (${diskCheck.freeGB}GB). Recommended ${this.MIN_DISK_SPACE_GB_SOFT}GB.`,
                     severity: 'WARNING',
-                    details: healthReport.disk
+                    details: diskCheck
                 });
             }
         }
@@ -74,14 +74,15 @@ export class GuardrailsManager {
      * Gets current system health status
      */
     async getSystemStatus() {
-        const healthReport = await this.systemMonitor.checkHealth(process.cwd());
+        const disk = await this.systemMonitor.checkDiskSpace(process.cwd());
+        const memory = this.systemMonitor.getMemoryUsage();
         const { zombies } = await this.scanForZombies();
 
         return {
-            disk: healthReport.disk,
-            memory: healthReport.memory,
+            disk,
+            memory,
             zombies,
-            status: !healthReport.isHealthy || zombies.length > 5 ? 'WARNING' : 'OK'
+            status: disk.isLow || zombies.length > 5 ? 'WARNING' : 'OK'
         };
     }
 

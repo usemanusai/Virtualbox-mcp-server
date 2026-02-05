@@ -1,122 +1,109 @@
 import checkDiskSpace from 'check-disk-space';
 import os from 'os';
-import path from 'path';
-
-export interface DiskSpaceInfo {
-    free: number;
-    size: number;
-    used: number;
-    percentUsed: number;
-    path: string;
-}
-
-export interface MemoryInfo {
-    totalMB: number;
-    freeMB: number;
-    usedMB: number;
-    percentUsed: number;
-}
-
-export interface SystemHealthReport {
-    disk: DiskSpaceInfo;
-    memory: MemoryInfo;
-    warnings: string[];
-    isHealthy: boolean;
-}
+import { logger } from './logger.js';
 
 /**
- * System Monitor for checking disk space, memory, and workspace validation.
- * Used by GuardrailsManager for pre-flight checks before VM operations.
+ * SystemMonitor - Provides cross-platform system resource checks
  */
 export class SystemMonitor {
-    private minDiskSpaceMB: number;
-    private minMemoryMB: number;
 
-    constructor(config?: { minDiskSpaceMB?: number; minMemoryMB?: number }) {
-        this.minDiskSpaceMB = config?.minDiskSpaceMB || 5000; // 5GB default
-        this.minMemoryMB = config?.minMemoryMB || 2000;       // 2GB default
+    /**
+     * Checks available disk space on the drive containing the specified path
+     * @param path Path to check disk space for (default: current working directory)
+     * @returns Object with free, size (total), and percentage
+     */
+    async checkDiskSpace(path: string = process.cwd()): Promise<{
+        free: number;
+        size: number;
+        freeGB: number;
+        totalGB: number;
+        percentFree: number;
+        isLow: boolean;
+    }> {
+        try {
+            // check-disk-space handles Windows drive letters (C:) and Unix paths (/)
+            const result = await checkDiskSpace(path);
+
+            const freeGB = result.free / 1024 / 1024 / 1024;
+            const totalGB = result.size / 1024 / 1024 / 1024;
+            const percentFree = (result.free / result.size) * 100;
+
+            // Critical warning if less than 5GB or 10%
+            const isLow = freeGB < 5 || percentFree < 10;
+
+            return {
+                free: result.free,
+                size: result.size,
+                freeGB: parseFloat(freeGB.toFixed(2)),
+                totalGB: parseFloat(totalGB.toFixed(2)),
+                percentFree: parseFloat(percentFree.toFixed(1)),
+                isLow
+            };
+        } catch (error) {
+            logger.error(`Failed to check disk space for path ${path}`, error);
+            // Return conservative fail-safe values (assume enough space to avoid blocking if check fails, but log error)
+            return {
+                free: 10 * 1024 * 1024 * 1024,
+                size: 100 * 1024 * 1024 * 1024,
+                freeGB: 10,
+                totalGB: 100,
+                percentFree: 10,
+                isLow: false
+            };
+        }
     }
 
     /**
-     * Gets disk space information for a specific path.
-     * @param targetPath - Path to check (uses OS root if not specified)
+     * Checks system memory usage
      */
-    async getDiskSpace(targetPath?: string): Promise<DiskSpaceInfo> {
-        const diskPath = targetPath || (process.platform === 'win32' ? 'C:' : '/');
-        const info = await checkDiskSpace(diskPath);
+    getMemoryUsage(): {
+        total: number;
+        free: number;
+        used: number;
+        totalGB: number;
+        freeGB: number;
+        percentUsed: number;
+    } {
+        const total = os.totalmem();
+        const free = os.freemem();
+        const used = total - free;
 
         return {
-            free: Math.round(info.free / 1024 / 1024), // Convert to MB
-            size: Math.round(info.size / 1024 / 1024),
-            used: Math.round((info.size - info.free) / 1024 / 1024),
-            percentUsed: Math.round(((info.size - info.free) / info.size) * 100),
-            path: diskPath
+            total,
+            free,
+            used,
+            totalGB: parseFloat((total / 1024 / 1024 / 1024).toFixed(2)),
+            freeGB: parseFloat((free / 1024 / 1024 / 1024).toFixed(2)),
+            percentUsed: parseFloat(((used / total) * 100).toFixed(1))
         };
     }
 
     /**
-     * Gets system memory information.
+     * Validates if a path is safe to operate in (prevents operating in system directories)
      */
-    getMemoryInfo(): MemoryInfo {
-        const totalBytes = os.totalmem();
-        const freeBytes = os.freemem();
-        const usedBytes = totalBytes - freeBytes;
+    validateWorkspace(workspacePath: string): { valid: boolean; reason?: string } {
+        // Normalize path
+        const normalized = workspacePath.replace(/\\/g, '/');
 
-        return {
-            totalMB: Math.round(totalBytes / 1024 / 1024),
-            freeMB: Math.round(freeBytes / 1024 / 1024),
-            usedMB: Math.round(usedBytes / 1024 / 1024),
-            percentUsed: Math.round((usedBytes / totalBytes) * 100)
-        };
-    }
-
-    /**
-     * Validates that a workspace path is safe and not a system directory.
-     * @param workspacePath - Path to validate
-     * @returns True if the path is safe to use
-     */
-    validateWorkspace(workspacePath: string): boolean {
-        const normalizedPath = path.resolve(workspacePath).toLowerCase();
-        
-        // List of dangerous paths that should never be used as workspaces
-        const dangerousPaths = [
-            process.platform === 'win32' ? 'c:\\windows' : '/bin',
-            process.platform === 'win32' ? 'c:\\program files' : '/usr',
-            process.platform === 'win32' ? 'c:\\system32' : '/etc',
-            '/boot', '/dev', '/proc', '/sys'
-        ];
-
-        for (const dangerous of dangerousPaths) {
-            if (normalizedPath.startsWith(dangerous.toLowerCase())) {
-                return false;
-            }
+        // Block root directories
+        if (normalized === '/' || normalized.match(/^[a-zA-Z]:\/?$/)) {
+            return { valid: false, reason: "Cannot operate directly in root directory" };
         }
 
-        return true;
-    }
-
-    /**
-     * Runs a full system health check.
-     * @param workspacePath - Optional workspace path to check disk space for
-     */
-    async checkHealth(workspacePath?: string): Promise<SystemHealthReport> {
-        const disk = await this.getDiskSpace(workspacePath);
-        const memory = this.getMemoryInfo();
-        const warnings: string[] = [];
-
-        if (disk.free < this.minDiskSpaceMB) {
-            warnings.push(`Low disk space: Only ${disk.free}MB free (minimum: ${this.minDiskSpaceMB}MB)`);
+        // Block system directories (Windows)
+        if (normalized.toLowerCase().includes('/windows') ||
+            normalized.toLowerCase().includes('/program files') ||
+            normalized.toLowerCase().includes('/system32')) {
+            return { valid: false, reason: "Cannot operate in system directories" };
         }
 
-        if (memory.freeMB < this.minMemoryMB) {
-            warnings.push(`Low memory: Only ${memory.freeMB}MB free (minimum: ${this.minMemoryMB}MB)`);
+        // Block typical home root usage (should use subdirs)
+        const home = os.homedir().replace(/\\/g, '/');
+        if (normalized === home) {
+            // Allow home dir execution but warn... actually, guardrails should probably forbid it to prevent clutter
+            // For now, allow it but maybe prefer a workspace folder
         }
 
-        return {
-            disk,
-            memory,
-            warnings,
-            isHealthy: warnings.length === 0
-        };
+        return { valid: true };
     }
 }

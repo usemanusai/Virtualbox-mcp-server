@@ -104,6 +104,10 @@ export class SyncManager {
 
             logger.info(`Syncing ${relPath} to VM ${vmName}`);
 
+            // Update hash cache BEFORE upload (optimistic) or AFTER? 
+            // Better updating it after success, but to prevent rapid-fire triggers, maybe before?
+            // Let's do after to ensure integrity.
+
             await this.vagrant.uploadFile(vmName, changedFile, destPath, config.credentials);
 
             if (newHash) this.fileHashes.set(changedFile, newHash);
@@ -193,6 +197,8 @@ export class SyncManager {
             } catch (error) {
                 if (config) {
                     logger.info(`Vagrant rsync-back failed for ${vmName}, falling back to manual download...`);
+                    // Note: Manual recursive download from VM is complex with guestcontrol.
+                    // For now we'll throw an informative error or implement individual file download if needed.
                     throw new Error(`Full sync from native VM is not yet supported. Use 'resolve_conflict' for specific files.`);
                 } else {
                     throw error;
@@ -219,3 +225,4 @@ export { OperationTracker, ProgressInfo, OperationType, OperationStatus, StartOp
 
 // Export GuardrailsManager for safety
 export { GuardrailsManager, Violation } from './guardrails-manager.js';
+

@@ -1,88 +1,83 @@
 import { Octokit } from "@octokit/rest";
+import { logger } from "./logger.js";
 
-export interface ResolvedAsset {
-    url: string;
+export interface GitHubAssetInfo {
     name: string;
+    url: string;
     size: number;
-    download_url: string;
+    downloadCount: number;
+    createdAt: string;
+    contentType: string;
 }
 
-/**
- * Resolves GitHub release assets dynamically based on patterns.
- * Useful for downloading tools like Vagrant, VirtualBox installers from GitHub Releases.
- */
 export class GitHubAssetResolver {
     private octokit: Octokit;
 
-    constructor(token?: string) {
-        this.octokit = new Octokit({ auth: token || process.env.GITHUB_TOKEN });
+    constructor(auth?: string) {
+        this.octokit = new Octokit({
+            auth: auth || process.env.GITHUB_TOKEN
+        });
     }
 
     /**
-     * Gets assets from a specific release or the latest release.
-     * @param owner - Repository owner
-     * @param repo - Repository name
-     * @param tag - Specific tag or 'latest' for the latest release
-     * @returns Array of release assets
+     * Resolves a valid download URL for a file in a GitHub release.
+     * @param owner - Repository owner (e.g., "KOWX712")
+     * @param repo - Repository name (e.g., "PlayIntegrityFix")
+     * @param pattern - Regex or glob-style pattern to match the asset filename
+     * @param tag - Release tag (default: "latest")
      */
-    async getAssets(owner: string, repo: string, tag: string = "latest"): Promise<ResolvedAsset[]> {
+    async resolveAsset(
+        owner: string,
+        repo: string,
+        pattern: string,
+        tag: string = "latest"
+    ): Promise<GitHubAssetInfo | null> {
         try {
+            logger.info(`Resolving asset for ${owner}/${repo} (Tag: ${tag}, Pattern: ${pattern})`);
+
             let release;
             if (tag === "latest") {
-                const res = await this.octokit.repos.getLatestRelease({ owner, repo });
-                release = res.data;
+                const response = await this.octokit.rest.repos.getLatestRelease({
+                    owner,
+                    repo
+                });
+                release = response.data;
             } else {
-                const res = await this.octokit.repos.getReleaseByTag({ owner, repo, tag });
-                release = res.data;
+                const response = await this.octokit.rest.repos.getReleaseByTag({
+                    owner,
+                    repo,
+                    tag
+                });
+                release = response.data;
             }
 
-            return release.assets.map((asset: any) => ({
-                url: asset.url,
+            if (!release.assets || release.assets.length === 0) {
+                logger.warn(`No assets found for ${owner}/${repo} release ${tag}`);
+                return null;
+            }
+
+            const regex = new RegExp(pattern, "i");
+            const asset = release.assets.find(a => regex.test(a.name));
+
+            if (!asset) {
+                logger.warn(`No asset matches pattern "${pattern}" in ${owner}/${repo} release ${tag}`);
+                return null;
+            }
+
+            return {
                 name: asset.name,
+                url: asset.browser_download_url,
                 size: asset.size,
-                download_url: asset.browser_download_url
-            }));
+                downloadCount: asset.download_count,
+                createdAt: asset.created_at,
+                contentType: asset.content_type
+            };
         } catch (error: any) {
-            console.error(`Failed to get assets from ${owner}/${repo}@${tag}:`, error.message);
-            return [];
+            logger.error(`GitHub API error resolving asset for ${owner}/${repo}`, error);
+            if (error.status === 404) {
+                throw new Error(`Repository or Release not found: ${owner}/${repo} (${tag})`);
+            }
+            throw error;
         }
-    }
-
-    /**
-     * Finds a specific asset by pattern matching its name.
-     * @param owner - Repository owner
-     * @param repo - Repository name
-     * @param pattern - Regex pattern or string to match asset name
-     * @param tag - Specific tag or 'latest'
-     * @returns The matched asset or undefined
-     */
-    async findAsset(
-        owner: string,
-        repo: string,
-        pattern: string | RegExp,
-        tag: string = "latest"
-    ): Promise<ResolvedAsset | undefined> {
-        const assets = await this.getAssets(owner, repo, tag);
-        const regex = typeof pattern === "string" ? new RegExp(pattern, "i") : pattern;
-
-        return assets.find((a) => regex.test(a.name));
-    }
-
-    /**
-     * Gets the download URL for a specific asset.
-     * @param owner - Repository owner
-     * @param repo - Repository name
-     * @param pattern - Regex pattern or string to match asset name
-     * @param tag - Specific tag or 'latest'
-     * @returns The download URL or undefined
-     */
-    async getDownloadUrl(
-        owner: string,
-        repo: string,
-        pattern: string | RegExp,
-        tag: string = "latest"
-    ): Promise<string | undefined> {
-        const asset = await this.findAsset(owner, repo, pattern, tag);
-        return asset?.download_url;
     }
 }

@@ -1,52 +1,43 @@
 /**
- * MCP-Safe Logger
+ * MCP-compatible logger that writes ALL output to stderr.
+ * This is critical because stdout is reserved for JSON-RPC communication
+ * in the MCP stdio transport.
  * 
- * CRITICAL: All logging MUST go to stderr, not stdout.
- * The MCP protocol uses stdio transport, meaning stdout is reserved for JSON-RPC messages.
- * Any non-JSON output to stdout will corrupt the protocol stream and crash the client.
+ * Replaced winston with direct console.error to guarantee stderr usage.
  */
+export const logger = {
+    info: (message: string, meta?: any) => log('info', message, meta),
+    error: (message: string, meta?: any) => log('error', message, meta),
+    warn: (message: string, meta?: any) => log('warn', message, meta),
+    debug: (message: string, meta?: any) => log('debug', message, meta),
+    level: process.env.LOG_LEVEL || 'error'
+};
 
-type LogLevel = 'debug' | 'info' | 'warn' | 'error';
-
-const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
+const levels: Record<string, number> = {
     debug: 0,
     info: 1,
     warn: 2,
     error: 3
 };
 
-// Default to 'info', can be overridden by LOG_LEVEL env var
-const currentLogLevel: LogLevel = (process.env.LOG_LEVEL as LogLevel) || 'info';
+function log(level: string, message: string, meta?: any) {
+    const currentLevelScore = levels[logger.level] ?? 3; // Default to error
+    const messageLevelScore = levels[level] ?? 1;
 
-function shouldLog(level: LogLevel): boolean {
-    return LOG_LEVEL_PRIORITY[level] >= LOG_LEVEL_PRIORITY[currentLogLevel];
-}
+    if (messageLevelScore < currentLevelScore) return;
 
-function formatMessage(level: LogLevel, message: string, ...args: any[]): string {
     const timestamp = new Date().toISOString();
-    const argsStr = args.length > 0 ? ' ' + args.map(a => JSON.stringify(a)).join(' ') : '';
-    return `[${timestamp}] [${level.toUpperCase()}] ${message}${argsStr}`;
+    const logData = {
+        level,
+        message,
+        timestamp,
+        ...meta
+    };
+
+    // Explicitly write to stderr to avoid corrupting stdout
+    process.stderr.write(JSON.stringify(logData) + '\n');
 }
 
-export const logger = {
-    debug: (message: string, ...args: any[]) => {
-        if (shouldLog('debug')) {
-            console.error(formatMessage('debug', message, ...args));
-        }
-    },
-    info: (message: string, ...args: any[]) => {
-        if (shouldLog('info')) {
-            console.error(formatMessage('info', message, ...args));
-        }
-    },
-    warn: (message: string, ...args: any[]) => {
-        if (shouldLog('warn')) {
-            console.error(formatMessage('warn', message, ...args));
-        }
-    },
-    error: (message: string, ...args: any[]) => {
-        if (shouldLog('error')) {
-            console.error(formatMessage('error', message, ...args));
-        }
-    }
+export const setLogLevel = (level: string) => {
+    logger.level = level;
 };

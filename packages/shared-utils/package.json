@@ -9,12 +9,15 @@
         "lint": "eslint ."
     },
     "dependencies": {
-        "zod": "^3.22.4",
-        "winston": "^3.11.0"
+        "@octokit/rest": "^22.0.1",
+        "axios": "^1.13.2",
+        "check-disk-space": "^3.4.0",
+        "winston": "^3.11.0",
+        "zod": "^3.22.4"
     },
     "devDependencies": {
+        "@types/node": "^20.10.0",
         "tsdown": "^0.1.0",
-        "typescript": "^5.3.3",
-        "@types/node": "^20.10.0"
+        "typescript": "^5.3.3"
     }
 }
