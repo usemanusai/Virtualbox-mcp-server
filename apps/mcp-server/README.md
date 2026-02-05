@@ -12,7 +12,7 @@
 
 AI agents can now provision, manage, and debug virtual development environments with full observability.
 
-[Features](#-features) • [Quick Start](#-quick-start) • [Tools](#-all-38-tools) • [Workflows](#-architectural-workflows) • [Examples](#-example-prompts) • [Configuration](#%EF%B8%8F-mcp-configuration)
+[Features](#-features) • [Quick Start](#-quick-start) • [Tools](#-all-46-tools) • [Workflows](#-architectural-workflows) • [Examples](#-example-prompts) • [Configuration](#%EF%B8%8F-mcp-configuration)
 
 </div>
 
@@ -20,7 +20,7 @@ AI agents can now provision, manage, and debug virtual development environments 
 
 ## ✨ Features
 
-- **38 MCP Tools** for complete VM lifecycle management
+- **46 MCP Tools** for complete VM lifecycle management
 - **Real-time Observability** with logs, dashboards, and progress tracking
 - **Snapshot Management** for safe rollback and recovery
 - **Process Control** with kill/list capabilities
@@ -36,7 +36,7 @@ AI agents can now provision, manage, and debug virtual development environments 
 ```
 Virtualbox-mcp-server/          # Turborepo Monorepo
 ├── apps/
-│   └── mcp-server/             # Main MCP server (38 tools)
+│   └── mcp-server/             # Main MCP server (46 tools)
 │       └── src/
 │           ├── index.ts        # Tool definitions & handlers
 │           ├── error-handler.ts
@@ -93,9 +93,9 @@ node apps/mcp-server/dist/index.js
 
 ---
 
-## 🛠️ All 38 Tools
+## 🛠️ All 46 Tools
 
-### VM Lifecycle (6 tools)
+### VM Lifecycle (9 tools)
 
 | Tool | Description |
 |------|-------------|
@@ -105,22 +105,27 @@ node apps/mcp-server/dist/index.js
 | `get_vm_status` | Get VM state |
 | `list_vms` | List all VMs |
 | `destroy_vm` | Destroy VM (force) |
+| `resize_vm_resources` | Modify CPU/RAM/GUI settings |
+| `package_box` | Export VM as a .box file |
+| `set_display_mode` | Toggle Headless/GUI mode |
 
-### Execution (3 tools)
+### Execution (4 tools)
 
 | Tool | Description |
 |------|-------------|
 | `exec_command` | Execute command in VM (with timeout) |
 | `exec_with_sync` | Execute with rsync before/after |
 | `run_background_task` | Run nohup background task |
+| `atomic_transaction_exec` | Execute with auto-rollback on failure |
 
-### Environment Setup (3 tools)
+### Environment Setup (4 tools)
 
 | Tool | Description |
 |------|-------------|
 | `setup_dev_environment` | Install runtimes (node, python, go, etc.) |
 | `install_dev_tools` | Install tools (git, docker, nginx, etc.) |
 | `configure_shell` | Configure aliases and env vars |
+| `inject_secrets` | Securely inject environment variables |
 
 ### File Operations (7 tools)
 
@@ -170,7 +175,7 @@ node apps/mcp-server/dist/index.js
 |------|-------------|
 | `get_vm_dashboard` | Comprehensive dashboard: CPU, RAM, Disk, tasks, logs |
 
-### ⏳ Progress Awareness (5 tools)
+### ⏳ Progress Awareness (6 tools)
 
 | Tool | Description |
 |------|-------------|
@@ -179,13 +184,16 @@ node apps/mcp-server/dist/index.js
 | `wait_for_operation` | Block until operation completes or times out |
 | `cancel_operation` | Cancel a running operation |
 | `list_active_operations` | List all active operations |
+| `sentinel_await` | Wait for file, port, or service condition |
 
-### 🛡️ Guardrails & Maintenance (2 tools)
+### 🛡️ Guardrails & Security (4 tools)
 
 | Tool | Description |
 |------|-------------|
 | `scan_system_health` | Check disk/memory, identify Zombie VMs |
 | `cleanup_zombies` | Safely destroy orphaned VMs (with dry-run option) |
+| `audit_security` | Scan for open ports and weak configs |
+| `forensic_blackbox_capture` | Capture process & network state |
 
 ### 🧠 AI Reasoning (1 tool)
 
