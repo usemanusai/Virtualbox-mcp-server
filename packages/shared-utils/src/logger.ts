@@ -31,11 +31,24 @@ function log(level: string, message: string, meta?: any) {
         level,
         message,
         timestamp,
-        ...meta
+        ...redactSecrets(meta)
     };
 
     // Explicitly write to stderr to avoid corrupting stdout
     process.stderr.write(JSON.stringify(logData) + '\n');
+}
+
+export function redactSecrets(value: any): any {
+    const secretPattern = /(password|token|secret|api[_-]?key|authorization|key|passphrase)/i;
+    if (Array.isArray(value)) return value.map(redactSecrets);
+    if (value && typeof value === "object") {
+        const out: Record<string, any> = {};
+        for (const [k, v] of Object.entries(value)) {
+            out[k] = secretPattern.test(k) ? "***REDACTED***" : redactSecrets(v);
+        }
+        return out;
+    }
+    return value;
 }
 
 export const setLogLevel = (level: string) => {

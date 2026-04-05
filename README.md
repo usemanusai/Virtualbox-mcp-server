@@ -12,7 +12,7 @@
 
 AI agents can now provision, manage, and debug virtual development environments with full observability.
 
-[Features](#-features) • [Quick Start](#-quick-start) • [Tools](#-all-38-tools) • [Workflows](#-architectural-workflows) • [Examples](#-example-prompts) • [Configuration](#%EF%B8%8F-mcp-configuration)
+[Features](#-features) • [Quick Start](#-quick-start) • [Tools](#-all-mcp-tools) • [Workflows](#-architectural-workflows) • [Examples](#-example-prompts) • [Configuration](#%EF%B8%8F-mcp-configuration)
 
 </div>
 
@@ -20,7 +20,7 @@ AI agents can now provision, manage, and debug virtual development environments 
 
 ## ✨ Features
 
-- **38 MCP Tools** for complete VM lifecycle management
+- **MCP Tools** for complete VM lifecycle management
 - **Real-time Observability** with logs, dashboards, and progress tracking
 - **Snapshot Management** for safe rollback and recovery
 - **Process Control** with kill/list capabilities
@@ -36,7 +36,7 @@ AI agents can now provision, manage, and debug virtual development environments 
 ```
 Virtualbox-mcp-server/          # Turborepo Monorepo
 ├── apps/
-│   └── mcp-server/             # Main MCP server (38 tools)
+│   └── mcp-server/             # Main MCP server (MCP tools)
 │       └── src/
 │           ├── index.ts        # Tool definitions & handlers
 │           ├── error-handler.ts
@@ -93,7 +93,7 @@ node apps/mcp-server/dist/index.js
 
 ---
 
-## 🛠️ All 38 Tools
+## All MCP Tools
 
 ### VM Lifecycle (6 tools)
 
@@ -809,3 +809,54 @@ MIT © [usemanusai](https://github.com/usemanusai)
 [⬆ Back to Top](#%EF%B8%8F-virtualbox-mcp-server)
 
 </div>
+
+---
+
+## Windows Path-Safe Execution (v2)
+
+For deterministic Windows guest execution, use `exec_guest_command_v2` and preflight paths with `resolve_guest_path`.
+
+Example (`exec_guest_command_v2`):
+
+```json
+{
+  "name": "exec_guest_command_v2",
+  "arguments": {
+    "vm_name": "Windows Server",
+    "username": "Administrator",
+    "password": "****",
+    "program": "cmd.exe",
+    "args": ["/c", "dir \"G:\\\\New folder\""],
+    "working_dir": "G:\\\\New folder\\\\AD-Forencics",
+    "strict_paths": true,
+    "allow_workdir_fallback": false,
+    "shell_mode": "windows"
+  }
+}
+```
+
+Example (`resolve_guest_path`):
+
+```json
+{
+  "name": "resolve_guest_path",
+  "arguments": {
+    "vm_name": "Windows Server",
+    "path": "\\\\VBoxSvr\\\\shared\\\\New folder",
+    "username": "Administrator",
+    "password": "****"
+  }
+}
+```
+
+`exec_guest_command_v2` response fields:
+- `effective_working_dir`
+- `resolved_program`
+- `resolved_args`
+- `shell_strategy`
+- `path_normalization_applied`
+- `warnings`
+- `debug_trace` (only when `MCP_EXEC_DEBUG=1`)
+
+
+

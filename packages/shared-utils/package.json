@@ -4,9 +4,10 @@
     "main": "./dist/index.js",
     "types": "./dist/index.d.ts",
     "scripts": {
-        "build": "tsc -b",
+        "build": "tsc -b --force",
         "dev": "tsc -b -w",
-        "lint": "eslint ."
+        "lint": "eslint .",
+        "test:unit": "node test/run-unit-tests.mjs"
     },
     "dependencies": {
         "@octokit/rest": "^22.0.1",

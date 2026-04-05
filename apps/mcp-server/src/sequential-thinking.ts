@@ -20,7 +20,7 @@ export class SequentialThinkingManager {
     public processThought(thought: ThoughtData): { content: { type: "text"; text: string }[] } {
         // Validate basic integrity
         if (thought.thoughtNumber < 1) {
-            throw new Error("thought_number must be >= 1");
+            throw new Error("thoughtNumber must be >= 1");
         }
 
         // Store thought in history

@@ -277,7 +277,7 @@ export class BackgroundTaskManager {
 
         // Parse line counts
         const lineCounts = lineCountResult.stdout.split('\n')
-            .map(line => parseInt(line.trim().split(/\s+/)[0] || '0', 10));
+            .map((line: any) => parseInt(line.trim().split(/\s+/)[0] || '0', 10));
         const stdoutLines = lineCounts[0] || 0;
         const stderrLines = lineCounts[1] || 0;
 

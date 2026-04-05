@@ -7,7 +7,8 @@
         "packages/*"
     ],
     "scripts": {
-        "build": "turbo run build",
+        "build": "npm run build --workspace \"@virtualbox-mcp/shared-utils\" --workspace \"@virtualbox-mcp/vagrant-client\" --workspace \"@virtualbox-mcp/sync-engine\" --workspace \"@use.manus.ai/virtualbox-mcp-server\"",
+        "test": "npm run test:unit --workspace \"@virtualbox-mcp/shared-utils\" && npm run test:unit --workspace \"@use.manus.ai/virtualbox-mcp-server\"",
         "dev": "turbo run dev",
         "lint": "turbo run lint",
         "format": "prettier --write \"**/*.{ts,tsx,md}\""

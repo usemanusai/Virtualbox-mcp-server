@@ -12,7 +12,7 @@
 
 AI agents can now provision, manage, and debug virtual development environments with full observability.
 
-[Features](#-features) • [Quick Start](#-quick-start) • [Tools](#-all-46-tools) • [Workflows](#-architectural-workflows) • [Examples](#-example-prompts) • [Configuration](#%EF%B8%8F-mcp-configuration)
+[Features](#-features) • [Quick Start](#-quick-start) • [Tools](#-all-mcp-tools) • [Workflows](#-architectural-workflows) • [Examples](#-example-prompts) • [Configuration](#%EF%B8%8F-mcp-configuration)
 
 </div>
 
@@ -20,7 +20,7 @@ AI agents can now provision, manage, and debug virtual development environments 
 
 ## ✨ Features
 
-- **46 MCP Tools** for complete VM lifecycle management
+- **MCP Tools** for complete VM lifecycle management
 - **Real-time Observability** with logs, dashboards, and progress tracking
 - **Snapshot Management** for safe rollback and recovery
 - **Process Control** with kill/list capabilities
@@ -36,7 +36,7 @@ AI agents can now provision, manage, and debug virtual development environments 
 ```
 Virtualbox-mcp-server/          # Turborepo Monorepo
 ├── apps/
-│   └── mcp-server/             # Main MCP server (46 tools)
+│   └── mcp-server/             # Main MCP server (MCP tools)
 │       └── src/
 │           ├── index.ts        # Tool definitions & handlers
 │           ├── error-handler.ts
@@ -91,7 +91,7 @@ node apps/mcp-server/dist/index.js
 
 ---
 
-## 🛠️ All 46 Tools
+## All MCP Tools
 
 ### VM Lifecycle (9 tools)
 
@@ -815,3 +815,6 @@ MIT © [usemanusai](https://github.com/usemanusai)
 [⬆ Back to Top](#%EF%B8%8F-virtualbox-mcp-server)
 
 </div>
+
+
+

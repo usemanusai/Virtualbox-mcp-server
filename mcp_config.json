@@ -1,0 +1,54 @@
+{
+  "mcpServers": {
+    "sequential-thinking": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ],
+      "env": {}
+    },
+    "context7": {
+      "serverUrl": "https://mcp.context7.com/mcp",
+      "headers": {
+        "CONTEXT7_API_KEY": "ctx7sk-69ff20bd-3654-4cc0-b164-2434ffc97db1"
+      }
+    },
+    "coolify": {
+      "command": "node",
+      "args": [
+        "C:/DATA/coolify-mcp/dist/index.js"
+      ],
+      "env": {
+        "COOLIFY_ACCESS_TOKEN": "szu8uWIDWJZvA402BpnJWkw27DXPrTbFrh4hVmTKd094613a",
+        "COOLIFY_BASE_URL": "http://139.59.50.21:8000"
+      }
+    },
+    "browsermcp": {
+      "command": "npx",
+      "args": [
+        "@browsermcp/mcp@latest"
+      ]
+    },
+    "ssh-server": {
+      "command": "node",
+      "args": [
+        "C:\\DATA\\SSH-MCP\\build\\index.js"
+      ],
+      "env": {
+        "NODE_NO_WARNINGS": "1"
+      }
+    },
+    "virtualbox-mcp": {
+      "command": "node",
+      "args": [
+        "C:\\DATA\\Virtualbox-mcp-v2\\apps\\mcp-server\\dist\\index.js"
+      ],
+      "env": {
+        "LOG_LEVEL": "info",
+        "PATH": "C:\\Program Files (x86)\\Vagrant\\bin;C:\\Program Files\\Oracle\\VirtualBox;%PATH%",
+        "VAGRANT_HOME": "C:\\Users\\loq\\.vagrant.d"
+      }
+    }
+  }
+}

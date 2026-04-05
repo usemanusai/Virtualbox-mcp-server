@@ -28,6 +28,14 @@ export interface VMCredentials {
     password?: string;
 }
 
+export interface GuestProgramOptions extends VMCredentials {
+    timeout?: number;
+    env?: Record<string, string>;
+    workingDir?: string;
+    captureOutput?: boolean;
+    runAsAdmin?: boolean;
+}
+
 export class VagrantClient {
     private vmsDir: string;
     private vboxPath: string | null = null;
@@ -96,8 +104,153 @@ export class VagrantClient {
             if (stdout.includes('VMState="saved"')) return 'saved';
             return 'unknown';
         } catch (error) {
-            return 'not_created';
+            // If control plane is unhealthy (e.g. VBox COM failure), do not misreport as not_created.
+            return 'unknown';
         }
+    }
+
+    private parseMachineReadable(stdout: string): Record<string, string> {
+        const parsed: Record<string, string> = {};
+        for (const line of stdout.split('\n')) {
+            const idx = line.indexOf('=');
+            if (idx <= 0) continue;
+            const key = line.slice(0, idx).trim();
+            let value = line.slice(idx + 1).trim();
+            value = value.replace(/^"/, '').replace(/"$/, '');
+            parsed[key] = value;
+        }
+        return parsed;
+    }
+
+    async getVMInfoRaw(name: string): Promise<Record<string, string>> {
+        const vbox = await this.getVBoxManage();
+        const { stdout } = await execa(vbox, ['showvminfo', name, '--machinereadable']);
+        return this.parseMachineReadable(stdout);
+    }
+
+    async getGuestOSFamily(name: string): Promise<'windows' | 'linux' | 'unknown'> {
+        try {
+            const info = await this.getVMInfoRaw(name);
+            const osType = (info.ostype || info.GuestOSType || "").toLowerCase();
+            if (osType.includes("windows") || osType.includes("win")) return "windows";
+            if (osType.includes("linux") || osType.includes("ubuntu") || osType.includes("debian")) return "linux";
+            return "unknown";
+        } catch {
+            return "unknown";
+        }
+    }
+
+    async executeGuestProgram(name: string, program: string, args: string[] = [], options: GuestProgramOptions = {}): Promise<{ stdout: string; stderr: string; exitCode: number; timedOut?: boolean }> {
+        const vbox = await this.getVBoxManage();
+        const timeout = options.timeout || 60000;
+        const username = options.username || 'vagrant';
+        const password = options.password || 'vagrant';
+        const status = await this.getVMStatus(name);
+        if (status !== 'running') {
+            throw new Error(`Cannot execute command: VM '${name}' is in state '${status}' (must be 'running')`);
+        }
+        if (!program) {
+            throw new Error("Program is required for guest program execution.");
+        }
+
+        const cmdArgs = [
+            'guestcontrol', name, 'run',
+            '--exe', program,
+            '--username', username,
+            '--password', password
+        ];
+        if (options.captureOutput !== false) {
+            cmdArgs.push('--wait-stdout', '--wait-stderr');
+        }
+        if (options.workingDir) {
+            cmdArgs.push('--putenv', `PWD=${options.workingDir}`);
+        }
+        if (options.env) {
+            for (const [k, v] of Object.entries(options.env)) {
+                cmdArgs.push('--putenv', `${k}=${v}`);
+            }
+        }
+        if (options.runAsAdmin) {
+            cmdArgs.push('--verbose');
+        }
+        cmdArgs.push('--');
+        cmdArgs.push(...args);
+
+        try {
+            const result = await execa(vbox, cmdArgs, { timeout, reject: false });
+            return {
+                stdout: result.stdout || '',
+                stderr: result.stderr || '',
+                exitCode: result.exitCode,
+                timedOut: false
+            };
+        } catch (error: any) {
+            return {
+                stdout: error.stdout || '',
+                stderr: error.stderr || error.message || '',
+                exitCode: error.exitCode || 1,
+                timedOut: !!error.timedOut
+            };
+        }
+    }
+
+    async getGuestToolsHealth(name: string): Promise<{
+        vmName: string;
+        guestAdditionsVersion: string;
+        vboxserviceStatus: 'running' | 'stopped' | 'unknown';
+        guestControlReady: boolean;
+    }> {
+        const info = await this.getVMInfoRaw(name);
+        const version = info.GuestAdditionsVersion || info.GuestAdditionsRunLevel || 'unknown';
+        const runLevel = (info.GuestAdditionsRunLevel || '').toLowerCase();
+        const vboxserviceStatus: 'running' | 'stopped' | 'unknown' =
+            runLevel.includes('userland') || runLevel.includes('desktop') ? 'running' :
+                runLevel ? 'stopped' : 'unknown';
+        const guestControlReady = version !== 'unknown' && !version.includes('none');
+        return {
+            vmName: name,
+            guestAdditionsVersion: version || 'unknown',
+            vboxserviceStatus,
+            guestControlReady
+        };
+    }
+
+    async getVMNetworkInfo(name: string): Promise<{
+        vmName: string;
+        guestIps: string[];
+        adapters: Array<{ name: string; mode: string }>;
+        forwardedPorts: Array<{ name: string; host_ip: string; host_port: number; guest_port: number; protocol: string }>;
+    }> {
+        const info = await this.getVMInfoRaw(name);
+        const adapters: Array<{ name: string; mode: string }> = [];
+        for (let i = 1; i <= 8; i++) {
+            const mode = info[`nic${i}`];
+            if (mode && mode !== 'none') {
+                adapters.push({ name: `Adapter ${i}`, mode });
+            }
+        }
+
+        const forwardedPorts: Array<{ name: string; host_ip: string; host_port: number; guest_port: number; protocol: string }> = [];
+        for (const [key, value] of Object.entries(info)) {
+            if (!key.startsWith('Forwarding(')) continue;
+            const parts = value.split(',');
+            if (parts.length >= 6) {
+                forwardedPorts.push({
+                    name: parts[0] || '',
+                    protocol: (parts[1] || 'tcp').toLowerCase(),
+                    host_ip: parts[2] || '127.0.0.1',
+                    host_port: parseInt(parts[3] || '0', 10),
+                    guest_port: parseInt(parts[5] || '0', 10)
+                });
+            }
+        }
+
+        const guestIps: string[] = [];
+        for (const [key, value] of Object.entries(info)) {
+            if (key.toLowerCase().includes('guestip') && value) guestIps.push(value);
+        }
+
+        return { vmName: name, guestIps, adapters, forwardedPorts };
     }
 
     async listVMs(options: { includeStatus?: boolean } = {}): Promise<{ name: string; state: VMStatus; managedBy: 'vagrant' | 'native' }[]> {
@@ -394,46 +547,19 @@ end
     }
 
     private async executeCommandNative(name: string, command: string, options: { timeout?: number, username?: string, password?: string } = {}): Promise<{ stdout: string; stderr: string; exitCode: number; timedOut?: boolean }> {
-        const vbox = await this.getVBoxManage();
-        const timeout = options.timeout || 60000;
-        const username = options.username || 'vagrant';
-        const password = options.password || 'vagrant';
-
-        // Fast check: Ensure VM is running
-        const status = await this.getVMStatus(name);
-        if (status !== 'running') {
-            throw new Error(`Cannot execute command: VM '${name}' is in state '${status}' (must be 'running')`);
+        const family = await this.getGuestOSFamily(name);
+        if (family === 'windows') {
+            return this.executeGuestProgram(name, 'cmd.exe', ['/c', command], {
+                username: options.username,
+                password: options.password,
+                timeout: options.timeout
+            });
         }
-
-        try {
-            // VBoxManage guestcontrol <vmname> run --exe "/bin/sh" --username <user> --password <pass> -- -c "<command>"
-            const result = await execa(vbox, [
-                'guestcontrol', name, 'run',
-                '--exe', '/bin/sh',
-                '--username', username,
-                '--password', password,
-                '--', '-c', command
-            ], { timeout });
-
-            return {
-                stdout: result.stdout,
-                stderr: result.stderr,
-                exitCode: result.exitCode,
-                timedOut: false
-            };
-        } catch (error: any) {
-            // Enhance error message for authentication failures
-            if (error.stderr && error.stderr.includes('VBOX_E_IPRT_ERROR')) {
-                error.message += ` (Hint: Check if Guest Additions are running and '${username}' user credentials are valid)`;
-            }
-
-            return {
-                stdout: error.stdout || '',
-                stderr: error.stderr || '',
-                exitCode: error.exitCode || 1,
-                timedOut: !!error.timedOut
-            };
-        }
+        return this.executeGuestProgram(name, '/bin/sh', ['-lc', command], {
+            username: options.username,
+            password: options.password,
+            timeout: options.timeout
+        });
     }
 
     private async uploadFileNative(name: string, source: string, destination: string, options: VMCredentials = {}): Promise<void> {
@@ -1170,6 +1296,11 @@ end
             this.executeCommand(name, 'cat /proc/loadavg', options)
         ]);
 
+        const failed = [cpuResult, memResult, diskResult, loadResult].find(r => r.exitCode !== 0);
+        if (failed) {
+            throw new Error(`Unable to collect VM resource usage. Command failed with exit code ${failed.exitCode}.`);
+        }
+
         // Parse CPU cores
         const cores = parseInt(cpuResult.stdout.trim(), 10) || 1;
 
@@ -1191,11 +1322,14 @@ end
 
         // Parse disk: "20G 10G 8G 55%" (total used free percent)
         const diskParts = diskResult.stdout.trim().split(/\s+/);
-        const parseSize = (s: string) => parseFloat(s.replace(/[GgMmKk]$/, '')) || 0;
+        const parseSize = (s?: string) => {
+            if (!s) return 0;
+            return parseFloat(s.replace(/[GgMmKk]$/, '')) || 0;
+        };
         const totalDisk = parseSize(diskParts[0]);
         const usedDisk = parseSize(diskParts[1]);
         const freeDisk = parseSize(diskParts[2]);
-        const diskPercent = parseFloat(diskParts[3]?.replace('%', '') || '0');
+        const diskPercent = parseFloat((diskParts[3] || '0').replace('%', '')) || 0;
 
         return {
             cpu: {
