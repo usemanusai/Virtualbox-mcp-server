@@ -25,10 +25,10 @@
         "@virtualbox-mcp/sync-engine": "*",
         "@virtualbox-mcp/vagrant-client": "*",
         "axios": "^1.13.2",
-        "zod": "^3.22.4"
+        "zod": "4.6.7"
     },
     "devDependencies": {
-        "esbuild": "^0.19.0",
+        "esbuild": "^0.28.2",
         "typescript": "^5.3.3"
     },
     "publishConfig": {

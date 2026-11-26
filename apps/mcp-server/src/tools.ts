@@ -117,7 +117,7 @@ export const TOOLS = [
                 host_path: { type: "string" },
                 guest_path: { type: "string" },
                 direction: { type: "string", enum: ["bidirectional", "to_vm", "from_vm"] },
-                exclude_patterns: { type: "array", items: { type: "string" } },
+                exclude_patterns: { type: "array", items: { type: "string" }, maxItems: 100 },
                 username: { type: "string" },
                 password: { type: "string" },
             },
@@ -161,7 +161,7 @@ export const TOOLS = [
                 box: { type: "string", default: "ubuntu/focal64" },
                 sync_type: { type: "string", default: "rsync" },
                 ports: { type: "array", items: { type: "object", properties: { guest: { type: "number" }, host: { type: "number" } } } },
-                exclude_patterns: { type: "array", items: { type: "string" } },
+                exclude_patterns: { type: "array", items: { type: "string" }, maxItems: 100 },
                 gui_mode: { type: "boolean" },
             },
             required: ["name", "project_path"],
@@ -216,7 +216,7 @@ export const TOOLS = [
             type: "object",
             properties: {
                 vm_name: { type: "string" },
-                runtimes: { type: "array", items: { type: "string" } }
+                runtimes: { type: "array", items: { type: "string" }, maxItems: 4 }
             },
             required: ["vm_name", "runtimes"]
         }
@@ -228,7 +228,7 @@ export const TOOLS = [
             type: "object",
             properties: {
                 vm_name: { type: "string" },
-                tools: { type: "array", items: { type: "string" } }
+                tools: { type: "array", items: { type: "string" }, maxItems: 20 }
             },
             required: ["vm_name", "tools"]
         }
@@ -492,7 +492,7 @@ export const TOOLS = [
         inputSchema: {
             type: "object",
             properties: {
-                vm_names: { type: "array", items: { type: "string" } },
+                vm_names: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 100 },
                 dry_run: { type: "boolean", default: true }
             },
             required: ["vm_names"]

@@ -317,7 +317,7 @@ export class McpServer {
             }
 
             if (name === "setup_dev_environment") {
-                const schema = z.object({ vm_name: z.string(), runtimes: z.array(z.string()) });
+                const schema = z.object({ vm_name: z.string(), runtimes: z.array(z.string()).max(4) });
                 const { vm_name, runtimes } = schema.parse(args);
                 for (const runtime of runtimes) {
                     const cmd = this.getInstallRuntimeCommand(runtime);
@@ -327,7 +327,7 @@ export class McpServer {
             }
 
             if (name === "install_dev_tools") {
-                const schema = z.object({ vm_name: z.string(), tools: z.array(z.string()) });
+                const schema = z.object({ vm_name: z.string(), tools: z.array(z.string()).max(20) });
                 const { vm_name, tools } = schema.parse(args);
                 for (const tool of tools) {
                     const cmd = this.getInstallToolCommand(tool);
@@ -337,7 +337,7 @@ export class McpServer {
             }
 
             if (name === "configure_shell") {
-                const schema = z.object({ vm_name: z.string(), secrets: z.record(z.string()).optional() });
+                const schema = z.object({ vm_name: z.string(), secrets: z.record(z.string(), z.string()).optional() });
                 const { vm_name, secrets } = schema.parse(args);
                 if (secrets) {
                     let config = "";
@@ -395,7 +395,7 @@ export class McpServer {
                 const schema = z.object({
                     vm_name: z.string(), host_path: z.string(), guest_path: z.string(),
                     direction: z.enum(["bidirectional", "to_vm", "from_vm"]),
-                    exclude_patterns: z.array(z.string()).optional()
+                    exclude_patterns: z.array(z.string()).max(100).optional()
                 });
                 const config = schema.parse(args);
                 await this.syncManager!.configureSync({
@@ -479,7 +479,7 @@ export class McpServer {
             }
 
             if (name === "cleanup_zombies") {
-                const { vm_names, dry_run } = z.object({ vm_names: z.array(z.string()), dry_run: z.boolean().default(true) }).parse(args);
+                const { vm_names, dry_run } = z.object({ vm_names: z.array(z.string()).min(1).max(100), dry_run: z.boolean().default(true) }).parse(args);
                 return { content: [{ type: "text", text: `Cleanup ${dry_run ? '(dry run)' : ''} initiated for: ${vm_names.join(', ')}` }] };
             }
 
@@ -557,7 +557,7 @@ export class McpServer {
             if (name === "inject_secrets") {
                 const { vm_name, secrets, username, password } = z.object({
                     vm_name: z.string(),
-                    secrets: z.record(z.string()),
+                    secrets: z.record(z.string(), z.string()),
                     username: z.string().optional(),
                     password: z.string().optional()
                 }).parse(args);
