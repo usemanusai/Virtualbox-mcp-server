@@ -25,9 +25,9 @@
     "author": "usemanusai",
     "license": "MIT",
     "devDependencies": {
-        "turbo": "^1.10.0",
         "prettier": "^3.0.0",
+        "turbo": "^2.11.13",
         "typescript": "^5.0.0"
     },
-    "packageManager": "npm@9.6.0"
+    "packageManager": "npm@11.20.0"
 }
